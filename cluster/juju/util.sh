@@ -23,8 +23,8 @@ UTIL_SCRIPT=$(readlink -m "${BASH_SOURCE}")
 JUJU_PATH=$(dirname ${UTIL_SCRIPT})
 source ${JUJU_PATH}/prereqs/ubuntu-juju.sh
 export JUJU_REPOSITORY=${JUJU_PATH}/charms
-#KUBE_BUNDLE_URL='https://raw.githubusercontent.com/whitmo/bundle-kubernetes/master/bundles.yaml'
-KUBE_BUNDLE_PATH=${JUJU_PATH}/bundles/local.yaml
+
+KUBE_BUNDLE_PATH=${JUJU_PATH}/bundles/local-dense.yaml
 
 function verify-prereqs() {
     gather_installation_reqs

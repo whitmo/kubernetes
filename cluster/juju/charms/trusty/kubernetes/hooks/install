@@ -6,14 +6,16 @@ set -ex
 
 echo "Installing kubernetes-node on $JUJU_UNIT_NAME"
 
-function conditional_apt_update(){
-    if expr $(date +%s) - $(stat -c %Y /var/lib/apt/periodic/update-success-stamp) > $0
-    then
-        apt-update -qq
-    fi
-}
+# function conditional_apt_update(){
+#     if expr $(date +%s) - $(stat -c %Y /var/lib/apt/periodic/update-success-stamp) > $0
+#     then
+#         return apt-get update -qq
+#     fi
+# }
 
-conditional_apt_update 36000
+# conditional_apt_update 36000
+
+apt-get update -qq
 
 apt-get install -q -y \
     bridge-utils \
