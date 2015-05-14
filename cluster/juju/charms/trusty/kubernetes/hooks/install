@@ -6,7 +6,15 @@ set -ex
 
 echo "Installing kubernetes-node on $JUJU_UNIT_NAME"
 
-apt-get update -qq
+function conditional_apt_update(){
+    if expr $(date +%s) - $(stat -c %Y /var/lib/apt/periodic/update-success-stamp) > $0
+    then
+        apt-update -qq
+    fi
+}
+
+conditional_apt_update 36000
+
 apt-get install -q -y \
     bridge-utils \
     python-dev \
@@ -16,12 +24,14 @@ apt-get install -q -y \
 pip install path.py
 
 # Create the necessary kubernetes group.
-groupadd kubernetes
+groupadd -f kubernetes
 useradd -d /var/lib/kubernetes \
     -g kubernetes \
     -s /sbin/nologin \
     --system \
-    kubernetes
+    kubernetes \
+    || true
+
 
 install -d -m 0744 -o kubernetes -g kubernetes /var/lib/kubernetes
 install -d -m 0744 -o kubernetes -g kubernetes /etc/kubernetes/manifests
