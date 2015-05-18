@@ -9,7 +9,7 @@ def parse_pod_output():
     out = sys.stdin.readlines()
     foo = json.loads(' '.join(out))
     for item in foo['items']:
-	if item['metadata']['name'] == 'fectrl-wrew6':
+	if item['metadata']['name'].split('-') == 'fectrl':
 		if item['status']['phase'] == "Running":
 			print item['status']['podIP']
 
