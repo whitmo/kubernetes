@@ -15,34 +15,73 @@
 # limitations under the License.
 
 
-set -o errexit
-set -o nounset
-set -o pipefail
+#set -o errexit
+#set -o nounset
+#set -o pipefail
+set -x
 
 UTIL_SCRIPT=$(readlink -m "${BASH_SOURCE}")
 JUJU_PATH=$(dirname ${UTIL_SCRIPT})
+# Use the config file specified in $KUBE_CONFIG_FILE, or config-default.sh.
+source "${JUJU_PATH}/${KUBE_CONFIG_FILE-"config-default.sh"}"
 source ${JUJU_PATH}/prereqs/ubuntu-juju.sh
 export JUJU_REPOSITORY=${JUJU_PATH}/charms
 #KUBE_BUNDLE_URL='https://raw.githubusercontent.com/whitmo/bundle-kubernetes/master/bundles.yaml'
 KUBE_BUNDLE_PATH=${JUJU_PATH}/bundles/local.yaml
 
-function verify-prereqs() {
-    gather_installation_reqs
-}
-
+# Build the binaries on the local system and copy the binaries to the Juju charm.
 function build-local() {
+    local targets=(
+        cmd/kube-proxy \
+        cmd/kube-apiserver \
+        cmd/kube-controller-manager \
+        cmd/kubelet \
+        plugin/cmd/kube-scheduler \
+        cmd/kubectl \
+        test/e2e/e2e.test \
+    )
     # Make a clean environment to avoid compiler errors.
     make clean
     # Build the binaries locally that are used in the charms.
-    make all WHAT="cmd/kube-apiserver cmd/kubectl cmd/kube-controller-manager plugin/cmd/kube-scheduler cmd/kubelet cmd/kube-proxy"
-    OUTPUT_DIR=_output/local/bin/linux/amd64
+    make all WHAT="${targets[*]}"
+    local OUTPUT_DIR=_output/local/bin/linux/amd64
     mkdir -p cluster/juju/charms/trusty/kubernetes-master/files/output
-    # Copy the binary output to the charm directory.
+    # Copy the binaries from the output directory to the charm directory.
     cp -v $OUTPUT_DIR/* cluster/juju/charms/trusty/kubernetes-master/files/output
 }
 
+function detect-master() {
+    local kubestatus
+    # Capturing a newline, and my awk-fu was weak - pipe through tr -d
+    kubestatus=$(juju status --format=oneline kubernetes-master | grep kubernetes-master/0 | awk '{print $3}' | tr -d "\n")
+    export KUBE_MASTER_IP=${kubestatus}
+    export KUBE_MASTER=${KUBE_MASTER_IP}
+    export KUBERNETES_MASTER=http://${KUBE_MASTER}:8080
+    # echo "Kubernetes master: " ${KUBERNETES_MASTER} 1>&2
+}
+
+function detect-minions() {
+    set -o xtrace
+    # Run the Juju command that gets the minion private IP addresses.
+    local ipoutput
+    ipoutput=$(juju run --service kubernetes "unit-get private-address" --format=json)
+    # [
+    # {"MachineId":"2","Stdout":"192.168.122.188\n","UnitId":"kubernetes/0"},
+    # {"MachineId":"3","Stdout":"192.168.122.166\n","UnitId":"kubernetes/1"}
+    # ]
+
+    # Strip out the IP addresses
+    export KUBE_MINION_IP_ADDRESSES=($(${JUJU_PATH}/return-node-ips.py "${ipoutput}"))
+    # echo "Kubernetes minions: " ${KUBE_MINION_IP_ADDRESSES[@]} 1>&2
+    export NUM_MINIONS=${#KUBE_MINION_IP_ADDRESSES[@]}
+    export MINION_NAMES=$KUBE_MINION_IP_ADDRESSES
+}
+
 function get-password() {
-    echo "TODO: Assign username/password security"
+  if [[ -z "${KUBE_USER}" || -z "${KUBE_PASSWORD}" ]]; then
+    export KUBE_USER=admin
+    export KUBE_PASSWORD=$(tr -cd '[:alnum:]' < /dev/urandom | head -c16)
+  fi
 }
 
 function kube-up() {
@@ -65,51 +104,16 @@ function kube-up() {
 }
 
 function kube-down() {
+    local force="$1"
     # Remove the binary files from the charm directory.
     rm -rf cluster/juju/charms/trusty/kubernetes-master/files/output/
     local jujuenv
     jujuenv=$(cat ~/.juju/current-environment)
-    juju destroy-environment $jujuenv
+    juju destroy-environment ${jujuenv} ${force}
 }
 
-function detect-master() {
-    local kubestatus
-    # Capturing a newline, and my awk-fu was weak - pipe through tr -d
-    kubestatus=$(juju status --format=oneline kubernetes-master | grep kubernetes-master/0 | awk '{print $3}' | tr -d "\n")
-    export KUBE_MASTER_IP=${kubestatus}
-    export KUBE_MASTER=${KUBE_MASTER_IP}
-    export KUBERNETES_MASTER=http://${KUBE_MASTER}:8080
-    echo "Kubernetes master: " ${KUBERNETES_MASTER}
-}
-
-function detect-minions() {
-    # Run the Juju command that gets the minion private IP addresses.
-    local ipoutput
-    ipoutput=$(juju run --service kubernetes "unit-get private-address" --format=json)
-    echo $ipoutput
-    # Strip out the IP addresses
-    #
-    # Example Output:
-    #- MachineId: "10"
-    #  Stdout: |
-    #    10.197.55.232
-    # UnitId: kubernetes/0
-    # - MachineId: "11"
-    # Stdout: |
-    #    10.202.146.124
-    #  UnitId: kubernetes/1
-    export KUBE_MINION_IP_ADDRESSES=($(${JUJU_PATH}/return-node-ips.py "${ipoutput}"))
-    echo "Kubernetes minions:  " ${KUBE_MINION_IP_ADDRESSES[@]}
-    export NUM_MINIONS=${#KUBE_MINION_IP_ADDRESSES[@]}
-    export MINION_NAMES=$KUBE_MINION_IP_ADDRESSES
-}
-
-function setup-logging-firewall() {
-    echo "TODO: setup logging and firewall rules"
-}
-
-function teardown-logging-firewall() {
-    echo "TODO: teardown logging and firewall rules"
+function prepare-e2e() {
+  echo "prepare-e2e() The Juju provider does not need any preperations for e2e." 1>&2
 }
 
 function sleep-status() {
@@ -119,7 +123,7 @@ function sleep-status() {
     i=0
     maxtime=900
     jujustatus=''
-    echo "Waiting up to 15 minutes to allow the cluster to come online... wait for it..."
+    echo "Waiting up to 15 minutes to allow the cluster to come online... wait for it..." 1>&2
 
     jujustatus=$(juju status kubernetes-master --format=oneline)
     if [[ $jujustatus == *"started"* ]];
@@ -135,7 +139,29 @@ function sleep-status() {
 
     # sleep because we cannot get the status back of where the minions are in the deploy phase
     # thanks to a generic "started" state and our service not actually coming online until the
-    # minions have received the binary from the master distribution hub during relations
-    echo "Sleeping an additional minute to allow the cluster to settle"
+    # minions have recieved the binary from the master distribution hub during relations
+    echo "Sleeping an additional minute to allow the cluster to settle" 1>&2
     sleep 60
+}
+
+# Execute prior to running tests to build a release if required for environment.
+function test-build-release {
+    echo "test-build-release() " 1>&2
+}
+
+# Execute prior to running tests to initialize required structure. This is
+# called from hack/e2e.go only when running -up (it is run after kube-up).
+function test-setup {
+    echo "test-setup() " 1>&2
+}
+
+# Execute after running tests to perform any required clean-up. This is called
+# from hack/e2e.go
+function test-teardown() {
+    kube-down "-y"
+}
+
+# Verify the prerequisites are statisfied before running.
+function verify-prereqs() {
+    gather_installation_reqs
 }
