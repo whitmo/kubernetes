@@ -1,5 +1,4 @@
-# HTTP/HTTPS server
-#
+# HTTP server
 server {
         listen 80;
         server_name localhost;
@@ -25,6 +24,7 @@ server {
           proxy_set_header Connection "upgrade";
         }
 }
+# HTTPS server
 server {
     listen 443;
     server_name localhost;
@@ -37,7 +37,6 @@ server {
     ssl_certificate_key  /srv/kubernetes/server.key;
 
     ssl_session_timeout 5m;
-    ssl_verify_client optional;
 
     # don't use SSLv3 because of POODLE
     ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
@@ -45,13 +44,13 @@ server {
     ssl_prefer_server_ciphers on;
 
     location / {
-      auth_basic            "Restricted";
-      auth_basic_user_file  /usr/share/nginx/htpasswd;
+      #auth_basic            "Restricted";
+      #auth_basic_user_file  /usr/share/nginx/htpasswd;
 
       # Proxy settings
       # disable buffering so that watch works
       proxy_buffering off;
-      proxy_pass %(api_server_address)s:8080/;
+      proxy_pass %(api_server_address)s;
       proxy_connect_timeout 159s;
       proxy_send_timeout   600s;
       proxy_read_timeout   600s;
