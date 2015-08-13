@@ -15,10 +15,9 @@
 # limitations under the License.
 
 
-#set -o errexit
-#set -o nounset
-#set -o pipefail
-set -x
+set -o errexit
+set -o nounset
+set -o pipefail
 
 UTIL_SCRIPT=$(readlink -m "${BASH_SOURCE}")
 JUJU_PATH=$(dirname ${UTIL_SCRIPT})
